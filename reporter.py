@@ -4,17 +4,18 @@ from subprocess import PIPE, run
 from glob import glob
 import asyncio
 import os
+import logging
+import shutil
 
 def get_packages():
     """
     Return list of packages that requires python3-devel
     and at the same time does not requires python3-setuptools
     """
-    command = ['repoquery', '-q', '--repo=rawhide rawhide-source', '--whatrequires', 'python3-devel']
+    command = ['repoquery', '-q', '--repo=rawhide rawhide-source', '--whatrequires=python3-devel', '--archlist=src']
     result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
     packages_with_devel = set(result.stdout.split(sep='\n'))
-
-    command = ['repoquery', '-q', '--repo=rawhide rawhide-source', '--whatrequires', 'python3-setuptools']
+    command = ['repoquery', '-q','--repo=rawhide rawhide-source', '--whatrequires=python3-setuptools', '--archlist=src']
     result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
     packages_with_setuptools = set(result.stdout.split(sep='\n'))
 
