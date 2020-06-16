@@ -26,79 +26,48 @@ def get_packages():
 
     return package_names
 
-def analyze_package(package):
-    print("PACKAGE: " + package)
-    os.chdir('/tmp/')
-    print(os.getcwd())
-    command = ['fedpkg', 'clone', package]
-    result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
-    print(result)
-    os.chdir('/tmp/' + package)
-    print(os.getcwd())
-    command = ['fedpkg', 'prep']
-    result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
-    print(result)
-    print(os.getcwd())
-    directory = glob(os.getcwd() + '/*/')
-    print(directory)
-    os.chdir(directory[0])
-    command = ['grep', '-r', 'setuptools']
-    result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
-    print(result)
-    return result.returncode
-
-
 async def report(packages):
     semaphore = asyncio.Semaphore(10)
     async def analyze_package(package, semaphore):
-        print("PACKAGE: " + package)
         async with semaphore:
-            cmd = f"cd /tmp && fedpkg clone {package} && cd {package} && fedpkg prep"
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE)
+            try:
+                cmd = f"cd /tmp && fedpkg clone {package} && cd {package} && fedpkg prep"
+                proc = await asyncio.create_subprocess_shell(
+                    cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE)
 
-            stdout, stderr = await proc.communicate()
+                stdout, stderr = await proc.communicate()
 
-            print(f'[{cmd!r} exited with {proc.returncode}]')
-            if stdout:
-                print(f'[stdout]\n{stdout.decode()}')
-            if stderr:
-                print(f'[stderr]\n{stderr.decode()}')
-            cmd = f"grep -r setuptools /tmp/{package}/"
+                if proc.returncode != 0:
+                    logging.error("fedpkg clone or prep failed.")
+                    logging.error(f'[stderr]\n{stderr.decode()}')
+                cmd =f"grep -r setuptools /tmp/{package}"
+                proc = await asyncio.create_subprocess_shell(
+                    cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE)
 
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE)
+                stdout, stderr = await proc.communicate()
 
-            stdout, stderr = await proc.communicate()
-
-            print(f'[{cmd!r} exited with {proc.returncode}]')
-            if stdout:
-                print(f'[stdout]\n{stdout.decode()}')
-            if stderr:
-                print(f'[stderr]\n{stderr.decode()}')
+                logging.info(f'{package} exited with {proc.returncode}')
+                if stdout:
+                    logging.info(f'[stdout]\n{stdout.decode()}')
+                if stderr:
+                    (f'[stderr]\n{stderr.decode()}')
+            finally:
+                shutil.rmtree(f'/tmp/{package}')
 
         return proc
 
     return await asyncio.gather(*[analyze_package(package, semaphore) for package in packages])
 
 def main():
+    logging.basicConfig(filename='report.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
     packages = get_packages()
-    """
-    for package in packages:
-        if analyze_package(package):
-            print("Setuptools not detected")
-        else:
-            print("Setuptools detected")
-        exit()
-    """
+    logging.info("Number of packages to be processed: %s", str(len(packages)))
     print(list(packages)[:15])
     results = asyncio.run(report(list(packages)[:15]))
-    # print(list(packages))
-    # results = asyncio.run(report(list(packages)))
     print(results)
 if __name__ == "__main__":
     main()
