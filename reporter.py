@@ -42,7 +42,7 @@ async def report(packages):
                 if proc.returncode != 0:
                     logging.error("fedpkg clone or prep failed.")
                     logging.error(f'[stderr]\n{stderr.decode()}')
-                cmd =f"grep -r setuptools /tmp/{package}"
+                cmd = f"grep -r -i --include='*.py' 'from setuptools import setup' /tmp/{package}"
                 proc = await asyncio.create_subprocess_shell(
                     cmd,
                     stdout=asyncio.subprocess.PIPE,
