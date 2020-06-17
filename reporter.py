@@ -42,6 +42,7 @@ async def report(packages):
                 if proc.returncode != 0:
                     logging.error("fedpkg clone or prep failed.")
                     logging.error(f'[stderr]\n{stderr.decode()}')
+                    return None
                 cmd = f"grep -r -i --include='*.py' 'from setuptools import setup' /tmp/{package}"
                 proc = await asyncio.create_subprocess_shell(
                     cmd,
@@ -55,10 +56,16 @@ async def report(packages):
                     logging.info(f'[stdout]\n{stdout.decode()}')
                 if stderr:
                     (f'[stderr]\n{stderr.decode()}')
+                if proc.returncode == 0:
+                    return 1
+                else:
+                    return 0
             finally:
                 shutil.rmtree(f'/tmp/{package}')
 
-        return proc
+        # 0 - package does not use setuptools
+        # 1 - package use setuptools
+        # None - package failed to be analyzed
 
     return await asyncio.gather(*[analyze_package(package, semaphore) for package in packages])
 
@@ -66,8 +73,9 @@ def main():
     logging.basicConfig(filename='report.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
     packages = get_packages()
     logging.info("Number of packages to be processed: %s", str(len(packages)))
-    print(list(packages)[:15])
-    results = asyncio.run(report(list(packages)[:15]))
-    print(results)
+    print(list(packages)[:30])
+    return_codes = asyncio.run(report(list(packages)[:30]))
+    result = dict(zip(packages, return_codes))
+    print(result)
 if __name__ == "__main__":
     main()
