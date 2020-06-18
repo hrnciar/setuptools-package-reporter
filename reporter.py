@@ -26,6 +26,8 @@ def get_packages():
 
     return package_names
 
+
+
 async def report(packages):
     semaphore = asyncio.Semaphore(10)
     async def analyze_package(package, semaphore):
@@ -43,28 +45,38 @@ async def report(packages):
                     logging.error("fedpkg clone or prep failed.")
                     logging.error(f'[stderr]\n{stderr.decode()}')
                     return None
-                cmd = f"grep -r -i --include='*.py' 'from setuptools import setup' /tmp/{package}"
-                proc = await asyncio.create_subprocess_shell(
-                    cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE)
 
-                stdout, stderr = await proc.communicate()
+                rules = [f"grep -r -i --include='*.py' 'from setuptools import' /tmp/{package}",
+                        f"grep -r -i --include='*.py' 'import setuptools' /tmp/{package}",
+                        f"grep -r -i --include='*.py' 'setuptools' /tmp/{package}"]
+                for cmd in rules:
+                    proc = await asyncio.create_subprocess_shell(
+                        cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE)
 
-                logging.info(f'{package} exited with {proc.returncode}')
-                if stdout:
-                    logging.info(f'[stdout]\n{stdout.decode()}')
-                if stderr:
-                    (f'[stderr]\n{stderr.decode()}')
-                if proc.returncode == 0:
-                    return 1
-                else:
-                    return 0
+                    stdout, stderr = await proc.communicate()
+
+                    logging.info(f'{package} exited with {proc.returncode}')
+                    if stdout:
+                        logging.info(f'[stdout]\n{stdout.decode()}')
+                    if stderr:
+                        (f'[stderr]\n{stderr.decode()}')
+                    if proc.returncode == 0:
+                        if cmd == f"grep -r -i --include='*.py' 'setuptools' /tmp/{package}":
+                            return 2
+                        else:
+                            return 1
+                return 0
             finally:
-                shutil.rmtree(f'/tmp/{package}')
+                try:
+                    shutil.rmtree(f'/tmp/{package}')
+                except:
+                    pass
 
         # 0 - package does not use setuptools
         # 1 - package use setuptools
+        # 2 - there is 'setuptools' in sourcecode but it doesn't have to be relevant
         # None - package failed to be analyzed
 
     return await asyncio.gather(*[analyze_package(package, semaphore) for package in packages])
@@ -73,9 +85,30 @@ def main():
     logging.basicConfig(filename='report.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
     packages = get_packages()
     logging.info("Number of packages to be processed: %s", str(len(packages)))
-    print(list(packages)[:30])
-    return_codes = asyncio.run(report(list(packages)[:30]))
-    result = dict(zip(packages, return_codes))
-    print(result)
+    print(list(packages))
+    return_codes = asyncio.run(report(list(packages)))
+    results = dict(zip(packages, return_codes))
+    print(results)
+    packages_with_setuptools = []
+    packages_without_setuptools = []
+    packages_with_not_relevant_setuptools = []
+    failed_packages = []
+    for package, return_code in results.items():
+        if return_code == 0:
+            packages_without_setuptools.append(package)
+        elif return_code == 1:
+            packages_with_setuptools.append(package)
+        elif return_code == 2:
+            packages_with_not_relevant_setuptools.append(package)
+        else:
+            failed_packages.append(package)
+    print("There is " + str(len(packages_without_setuptools)) + " packages without any mention of 'setuptools'.")
+    print(packages_without_setuptools)
+    print("There is " + str(len(packages_with_setuptools)) + " packages with relevant mention of 'setuptools'.")
+    print(packages_with_setuptools)
+    print("There is " + str(len(packages_with_not_relevant_setuptools)) + " packages with not relevant mention of 'setuptools'.")
+    print(packages_with_not_relevant_setuptools)
+    print("There is " + str(len(failed_packages)) + " packages which failed to be tested (eg. fedpkg clone/prep failure).")
+    print(failed_packages)
 if __name__ == "__main__":
     main()
