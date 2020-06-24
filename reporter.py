@@ -1,6 +1,6 @@
 #!/bin/python3
 
-from subprocess import PIPE, run
+from subprocess import PIPE, run, check_output
 from glob import glob
 import asyncio
 import os
@@ -12,13 +12,19 @@ def get_packages():
     Return list of packages that requires python3-devel
     and at the same time does not requires python3-setuptools
     """
-    command = ['repoquery', '-q', '--repo=rawhide rawhide-source', '--whatrequires=python3-devel', '--archlist=src']
+    command = ['repoquery', '-q', '--repo=rawhide rawhide-source', '--whatrequires=python3-devel']
     result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
-    packages_with_devel = set(result.stdout.split(sep='\n'))
-    command = ['repoquery', '-q','--repo=rawhide rawhide-source', '--whatrequires=python3-setuptools', '--archlist=src']
-    result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
-    packages_with_setuptools = set(result.stdout.split(sep='\n'))
+    packages_with_devel = set(result.stdout.split('\n'))
+    command = ['grep', 'src']
+    result = check_output(command, input=result.stdout, universal_newlines=True)
+    packages_with_devel = set(result.split('\n'))
 
+    command = ['repoquery', '-q','--repo=rawhide rawhide-source', '--whatrequires=python3-setuptools']
+    result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+    packages_with_setuptools = set(result.stdout.split('\n'))
+    command = ['grep', 'src']
+    result = check_output(command, input=result.stdout, universal_newlines=True)
+    packages_with_setuptools = set(result.split('\n'))
     packages = packages_with_devel - packages_with_setuptools
     package_names = set()
     for package in packages:
@@ -46,9 +52,9 @@ async def report(packages):
                     logging.error(f'[stderr]\n{stderr.decode()}')
                     return None
 
-                rules = [f"grep -r -i --include='*.py' 'from setuptools import' /tmp/{package}",
-                        f"grep -r -i --include='*.py' 'import setuptools' /tmp/{package}",
-                        f"grep -r -i --include='*.py' 'setuptools' /tmp/{package}"]
+                rules = [f"grep -r --include='*.py' 'from setuptools import' /tmp/{package}",
+                        f"grep -r -E --include='*.py' 'import setuptools(\b|\.)' /tmp/{package}",
+                        f"grep -r -E --include='*.py' '(\b|\.)setuptools(\b|\.)' /tmp/{package}"]
                 for cmd in rules:
                     proc = await asyncio.create_subprocess_shell(
                         cmd,
@@ -63,7 +69,7 @@ async def report(packages):
                     if stderr:
                         (f'[stderr]\n{stderr.decode()}')
                     if proc.returncode == 0:
-                        if cmd == f"grep -r -i --include='*.py' 'setuptools' /tmp/{package}":
+                        if cmd == f"grep -r -E --include='*.py' '(\b|\.)setuptools(\b|\.)' /tmp/{package}":
                             return 2
                         else:
                             return 1
@@ -85,10 +91,8 @@ def main():
     logging.basicConfig(filename='report.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
     packages = get_packages()
     logging.info("Number of packages to be processed: %s", str(len(packages)))
-    print(list(packages))
     return_codes = asyncio.run(report(list(packages)))
     results = dict(zip(packages, return_codes))
-    print(results)
     packages_with_setuptools = []
     packages_without_setuptools = []
     packages_with_not_relevant_setuptools = []
